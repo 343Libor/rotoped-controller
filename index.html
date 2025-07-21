@@ -12,7 +12,10 @@
       text-align: center;
     }
     canvas, video {
-      display: none;
+      display: block;
+      margin: 10px auto;
+      border: 2px solid #555;
+      max-width: 90%;
     }
     #controls {
       margin-top: 10px;
@@ -34,17 +37,18 @@
   <h1>Rotoped Tracker</h1>
   <div id="controls">
     <label>Klávesa vpřed: <input id="forwardKey" value="w"></label>
-    <label>Vlevo: <input id="leftKey" value="a"></label>
-    <label>Vpravo: <input id="rightKey" value="d"></label>
+    <label>Vlevo (levá ruka): <input id="leftKey" value="a"></label>
+    <label>Vpravo (pravá ruka): <input id="rightKey" value="d"></label>
     <br>
     <button onclick="resetStats()">Resetovat statistiky</button>
+    <button onclick="toggleTracking()" id="toggleBtn">Vypnout detekci</button>
   </div>
   <div id="stats">
     <p><strong>Otáčky:</strong> <span id="rotations">0</span></p>
     <p><strong>Čas:</strong> <span id="time">0</span> s</p>
     <p><strong>Rychlost:</strong> <span id="speed">0</span> ot./min</p>
   </div>
-  <video id="video" width="640" height="480" autoplay></video>
+  <video id="video" width="640" height="480" autoplay muted></video>
   <canvas id="canvas" width="640" height="480"></canvas>
 
   <script>
@@ -54,12 +58,13 @@
     const forwardKey = document.getElementById('forwardKey');
     const leftKey = document.getElementById('leftKey');
     const rightKey = document.getElementById('rightKey');
+    const toggleBtn = document.getElementById('toggleBtn');
 
     let lastY = null;
     let rotations = 0;
     let startTime = null;
-    let interval = null;
     let isKeyDown = false;
+    let trackingEnabled = true;
 
     function updateStats() {
       const elapsed = (Date.now() - startTime) / 1000;
@@ -72,6 +77,11 @@
       rotations = 0;
       startTime = Date.now();
       updateStats();
+    }
+
+    function toggleTracking() {
+      trackingEnabled = !trackingEnabled;
+      toggleBtn.innerText = trackingEnabled ? "Vypnout detekci" : "Zapnout detekci";
     }
 
     async function startCamera() {
@@ -91,6 +101,10 @@
     }
 
     function process() {
+      if (!trackingEnabled) {
+        requestAnimationFrame(process);
+        return;
+      }
       if (!startTime) startTime = Date.now();
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -133,7 +147,6 @@
         }
         lastY = avgY;
 
-        // levá/pravá ruka – A/D simulace
         if (avgX < canvas.width * 0.3) simulateKey(leftKey.value);
         else if (avgX > canvas.width * 0.7) simulateKey(rightKey.value);
       }
