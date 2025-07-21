@@ -2,86 +2,119 @@
 <html lang="cs">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rotoped Kontrolér</title>
+  <title>Rotoped Hra Ovládání</title>
   <style>
-    body { font-family: sans-serif; text-align: center; background: #f2f2f2; }
-    video { border: 2px solid #333; margin-top: 10px; width: 400px; }
-    input, select, button { margin: 5px; padding: 5px; }
-    .config { margin-top: 15px; }
+    body { font-family: Arial; text-align: center; background: #111; color: #eee; }
+    video, canvas { border: 2px solid #444; margin: 10px; }
+    #status { font-size: 1.2em; margin-top: 10px; }
+    #controls { margin-top: 20px; }
+    #metrics { margin-top: 20px; font-size: 1em; }
+    input[type="text"] { width: 50px; }
   </style>
 </head>
 <body>
-  <h1>🚴 Rotoped Kontrolér</h1>
-  <video id="video" autoplay muted></video>
-  <div class="config">
-    <p>💥 Klávesa při šlápnutí: <input id="pedalKey" value="W"></p>
-    <p>👈 Ruka vlevo: <input id="leftKey" value="A"></p>
-    <p>👉 Ruka vpravo: <input id="rightKey" value="D"></p>
-    <button onclick="startTracking()">Spustit sledování</button>
+  <h1>🎮 Rotoped Web Ovladač</h1>
+  <video id="video" width="320" height="240" autoplay></video>
+  <canvas id="canvas" width="320" height="240"></canvas>
+  <div id="status">Načítání kamery...</div>
+
+  <div id="controls">
+    <p>Klávesa pro šlápnutí: <input type="text" id="pedalKey" value="w" /></p>
+    <p>Klávesa vlevo (ruka): <input type="text" id="leftKey" value="a" /></p>
+    <p>Klávesa vpravo (ruka): <input type="text" id="rightKey" value="d" /></p>
+  </div>
+
+  <div id="metrics">
+    <p>⏱️ Čas: <span id="time">0</span> s</p>
+    <p>📏 Vzdálenost: <span id="distance">0</span> otáček</p>
+    <p>⚡ Rychlost: <span id="speed">0</span> ot./min</p>
   </div>
 
   <script>
     const video = document.getElementById('video');
-    let pedalColor = { r: 255, g: 0, b: 0 };  // červená
-    let handColor = { r: 0, g: 255, b: 0 };    // zelená
-    let lastPedal = 0, lastLeft = 0, lastRight = 0;
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const status = document.getElementById('status');
 
-    async function startTracking() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
+    let pedalKey = document.getElementById("pedalKey").value;
+    let leftKey = document.getElementById("leftKey").value;
+    let rightKey = document.getElementById("rightKey").value;
 
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+    document.getElementById("pedalKey").addEventListener("input", e => pedalKey = e.target.value);
+    document.getElementById("leftKey").addEventListener("input", e => leftKey = e.target.value);
+    document.getElementById("rightKey").addEventListener("input", e => rightKey = e.target.value);
 
-      const interval = setInterval(() => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    // Měření času, vzdálenosti, rychlosti
+    let startTime = null;
+    let lastRotation = 0;
+    let totalRotations = 0;
+    let speed = 0;
 
-        let red = 0, greenLeft = 0, greenRight = 0;
-
-        for (let y = 0; y < canvas.height; y += 10) {
-          for (let x = 0; x < canvas.width; x += 10) {
-            let i = (y * canvas.width + x) * 4;
-            let r = data[i], g = data[i + 1], b = data[i + 2];
-
-            // červená - šlapka (dole)
-            if (r > 200 && g < 80 && b < 80 && y > canvas.height * 0.7) red++;
-
-            // zelená vlevo
-            if (g > 200 && r < 80 && b < 80 && x < canvas.width * 0.3) greenLeft++;
-
-            // zelená vpravo
-            if (g > 200 && r < 80 && b < 80 && x > canvas.width * 0.7) greenRight++;
-          }
-        }
-
-        let now = Date.now();
-        if (red > 5 && now - lastPedal > 500) {
-          pressKey(document.getElementById('pedalKey').value);
-          lastPedal = now;
-        }
-
-        if (greenLeft > 5 && now - lastLeft > 800) {
-          pressKey(document.getElementById('leftKey').value);
-          lastLeft = now;
-        }
-
-        if (greenRight > 5 && now - lastRight > 800) {
-          pressKey(document.getElementById('rightKey').value);
-          lastRight = now;
-        }
-
-      }, 100);
+    function updateMetrics() {
+      const now = Date.now();
+      const timeElapsed = (now - startTime) / 1000;
+      document.getElementById("time").textContent = timeElapsed.toFixed(1);
+      document.getElementById("distance").textContent = totalRotations;
+      document.getElementById("speed").textContent = speed.toFixed(1);
     }
 
     function pressKey(key) {
-      const e = new KeyboardEvent('keydown', { key });
-      document.dispatchEvent(e);
-      console.log('🔹 Zmáčknuto:', key);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key }));
+      document.dispatchEvent(new KeyboardEvent('keyup', { key }));
     }
+
+    function processFrame() {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      let frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // Zde jednoduché snímání červené barvy:
+      let redDetected = false;
+      for (let i = 0; i < frame.data.length; i += 4) {
+        const r = frame.data[i];
+        const g = frame.data[i + 1];
+        const b = frame.data[i + 2];
+        if (r > 150 && g < 80 && b < 80) {
+          redDetected = true;
+          const x = (i / 4) % canvas.width;
+          const y = Math.floor((i / 4) / canvas.width);
+          ctx.beginPath();
+          ctx.arc(x, y, 10, 0, 2 * Math.PI);
+          ctx.strokeStyle = "red";
+          ctx.stroke();
+          break;
+        }
+      }
+
+      if (redDetected) {
+        status.textContent = "🟢 Detekováno šlápnutí!";
+        if (!startTime) startTime = Date.now();
+
+        const now = Date.now();
+        if (now - lastRotation > 800) {
+          totalRotations++;
+          speed = 60_000 / (now - lastRotation);
+          lastRotation = now;
+          pressKey(pedalKey);
+        }
+      } else {
+        status.textContent = "🔴 Čekám na pohyb šlapky...";
+      }
+
+      updateMetrics();
+      requestAnimationFrame(processFrame);
+    }
+
+    // Zapnutí kamery
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+        video.addEventListener('loadeddata', () => {
+          processFrame();
+        });
+      })
+      .catch(err => {
+        status.textContent = "❌ Kamera se nepodařila načíst: " + err.message;
+      });
   </script>
 </body>
 </html>
