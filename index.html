@@ -31,6 +31,9 @@
       padding: 0.5rem 1rem;
       font-size: 1rem;
     }
+    .color-input {
+      width: 60px;
+    }
   </style>
 </head>
 <body>
@@ -38,8 +41,9 @@
   <div id="controls">
     <label>Klávesa vpřed: <input id="forwardKey" value="w"></label>
     <label>Vlevo (levá ruka): <input id="leftKey" value="a"></label>
-    <label>Vpravo (pravá ruka): <input id="rightKey" value="d"></label>
-    <br>
+    <label>Vpravo (pravá ruka): <input id="rightKey" value="d"></label><br>
+    <label>Barva pedálu: <input type="color" id="pedalColor" class="color-input" value="#ff0000"></label>
+    <label>Barva ruky: <input type="color" id="handColor" class="color-input" value="#00ff00"></label><br>
     <button onclick="resetStats()">Resetovat statistiky</button>
     <button onclick="toggleTracking()" id="toggleBtn">Vypnout detekci</button>
   </div>
@@ -58,6 +62,8 @@
     const forwardKey = document.getElementById('forwardKey');
     const leftKey = document.getElementById('leftKey');
     const rightKey = document.getElementById('rightKey');
+    const pedalColorInput = document.getElementById('pedalColor');
+    const handColorInput = document.getElementById('handColor');
     const toggleBtn = document.getElementById('toggleBtn');
 
     let lastY = null;
@@ -100,38 +106,60 @@
       document.dispatchEvent(event);
     }
 
+    function hexToRGB(hex) {
+      const bigint = parseInt(hex.replace('#', ''), 16);
+      const r = (bigint >> 16) & 255;
+      const g = (bigint >> 8) & 255;
+      const b = bigint & 255;
+      return { r, g, b };
+    }
+
+    function colorMatch(r, g, b, target, threshold = 50) {
+      return (
+        Math.abs(r - target.r) < threshold &&
+        Math.abs(g - target.g) < threshold &&
+        Math.abs(b - target.b) < threshold
+      );
+    }
+
     function process() {
       if (!trackingEnabled) {
         requestAnimationFrame(process);
         return;
       }
       if (!startTime) startTime = Date.now();
+
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
 
-      let detected = false;
-      let sumX = 0;
-      let sumY = 0;
-      let count = 0;
+      const pedalRGB = hexToRGB(pedalColorInput.value);
+      const handRGB = hexToRGB(handColorInput.value);
+
+      let pedalX = 0, pedalY = 0, pedalCount = 0;
+      let handX = 0, handCount = 0;
 
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        if (r > 200 && g < 100 && b < 100) {
-          const index = i / 4;
-          const x = index % canvas.width;
-          const y = Math.floor(index / canvas.width);
-          sumX += x;
-          sumY += y;
-          count++;
+        const index = i / 4;
+        const x = index % canvas.width;
+        const y = Math.floor(index / canvas.width);
+
+        if (colorMatch(r, g, b, pedalRGB)) {
+          pedalX += x;
+          pedalY += y;
+          pedalCount++;
+        } else if (colorMatch(r, g, b, handRGB)) {
+          handX += x;
+          handCount++;
         }
       }
 
-      if (count > 0) {
-        const avgX = sumX / count;
-        const avgY = sumY / count;
+      if (pedalCount > 0) {
+        const avgX = pedalX / pedalCount;
+        const avgY = pedalY / pedalCount;
 
         ctx.beginPath();
         ctx.arc(avgX, avgY, 20, 0, 2 * Math.PI);
@@ -146,6 +174,15 @@
           setTimeout(() => isKeyDown = false, 100);
         }
         lastY = avgY;
+      }
+
+      if (handCount > 0) {
+        const avgX = handX / handCount;
+        ctx.beginPath();
+        ctx.arc(avgX, canvas.height / 2, 20, 0, 2 * Math.PI);
+        ctx.strokeStyle = "green";
+        ctx.lineWidth = 5;
+        ctx.stroke();
 
         if (avgX < canvas.width * 0.3) simulateKey(leftKey.value);
         else if (avgX > canvas.width * 0.7) simulateKey(rightKey.value);
