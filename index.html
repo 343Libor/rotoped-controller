@@ -42,8 +42,6 @@
     <label>Klávesa vpřed: <input id="forwardKey" value="w"></label>
     <label>Vlevo (levá ruka): <input id="leftKey" value="a"></label>
     <label>Vpravo (pravá ruka): <input id="rightKey" value="d"></label><br>
-    <label>Barva pedálu: <input type="color" id="pedalColor" class="color-input" value="#ff0000"></label>
-    <label>Barva ruky: <input type="color" id="handColor" class="color-input" value="#00ff00"></label><br>
     <button onclick="resetStats()">Resetovat statistiky</button>
     <button onclick="toggleTracking()" id="toggleBtn">Vypnout detekci</button>
   </div>
@@ -62,8 +60,6 @@
     const forwardKey = document.getElementById('forwardKey');
     const leftKey = document.getElementById('leftKey');
     const rightKey = document.getElementById('rightKey');
-    const pedalColorInput = document.getElementById('pedalColor');
-    const handColorInput = document.getElementById('handColor');
     const toggleBtn = document.getElementById('toggleBtn');
 
     let lastY = null;
@@ -106,22 +102,6 @@
       document.dispatchEvent(event);
     }
 
-    function hexToRGB(hex) {
-      const bigint = parseInt(hex.replace('#', ''), 16);
-      const r = (bigint >> 16) & 255;
-      const g = (bigint >> 8) & 255;
-      const b = bigint & 255;
-      return { r, g, b };
-    }
-
-    function colorMatch(r, g, b, target, threshold = 30) {
-      return (
-        Math.abs(r - target.r) < threshold &&
-        Math.abs(g - target.g) < threshold &&
-        Math.abs(b - target.b) < threshold
-      );
-    }
-
     function process() {
       if (!trackingEnabled) {
         requestAnimationFrame(process);
@@ -133,62 +113,55 @@
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
 
-      const pedalRGB = hexToRGB(pedalColorInput.value);
-      const handRGB = hexToRGB(handColorInput.value);
+      let humanMask = new Uint8ClampedArray(data.length);
 
-      let pedalX = 0, pedalY = 0, pedalCount = 0;
-      let handX = 0, handCount = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
 
-      // Ignoruj oblasti mimo předpokládanou pozici člověka a rotopedu (střed obrazu)
-      const margin = 100;
+        const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
 
-      for (let y = margin; y < canvas.height - margin; y++) {
-        for (let x = margin; x < canvas.width - margin; x++) {
+        if (brightness > 30 && brightness < 240) {
+          humanMask[i] = 255;
+          humanMask[i + 1] = 255;
+          humanMask[i + 2] = 255;
+          humanMask[i + 3] = 255;
+        }
+      }
+
+      let xSum = 0, ySum = 0, count = 0;
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
           const i = (y * canvas.width + x) * 4;
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-
-          if (colorMatch(r, g, b, pedalRGB)) {
-            pedalX += x;
-            pedalY += y;
-            pedalCount++;
-          } else if (colorMatch(r, g, b, handRGB)) {
-            handX += x;
-            handCount++;
+          if (humanMask[i] === 255) {
+            xSum += x;
+            ySum += y;
+            count++;
           }
         }
       }
 
-      if (pedalCount > 0) {
-        const avgX = pedalX / pedalCount;
-        const avgY = pedalY / pedalCount;
+      if (count > 5000) {
+        const centerX = xSum / count;
+        const centerY = ySum / count;
 
         ctx.beginPath();
-        ctx.arc(avgX, avgY, 20, 0, 2 * Math.PI);
-        ctx.strokeStyle = pedalColorInput.value;
-        ctx.lineWidth = 5;
+        ctx.arc(centerX, centerY, 50, 0, 2 * Math.PI);
+        ctx.strokeStyle = "lime";
+        ctx.lineWidth = 4;
         ctx.stroke();
 
-        if (lastY !== null && avgY - lastY > 15 && !isKeyDown) {
+        if (lastY !== null && centerY - lastY > 15 && !isKeyDown) {
           rotations++;
           simulateKey(forwardKey.value);
           isKeyDown = true;
           setTimeout(() => isKeyDown = false, 100);
         }
-        lastY = avgY;
-      }
+        lastY = centerY;
 
-      if (handCount > 0) {
-        const avgX = handX / handCount;
-        ctx.beginPath();
-        ctx.arc(avgX, canvas.height / 2, 20, 0, 2 * Math.PI);
-        ctx.strokeStyle = handColorInput.value;
-        ctx.lineWidth = 5;
-        ctx.stroke();
-
-        if (avgX < canvas.width * 0.3) simulateKey(leftKey.value);
-        else if (avgX > canvas.width * 0.7) simulateKey(rightKey.value);
+        if (centerX < canvas.width * 0.3) simulateKey(leftKey.value);
+        else if (centerX > canvas.width * 0.7) simulateKey(rightKey.value);
       }
 
       updateStats();
