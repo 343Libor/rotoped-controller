@@ -14,36 +14,32 @@
     canvas {
       display: block;
       margin: 10px auto;
-      border: 2px solid lime;
+      border: 2px solid #0f0;
       max-width: 90%;
     }
-    #controls {
-      margin: 10px;
+    h1 {
+      color: lime;
     }
-    label, select, input {
-      margin: 5px;
+    #stats {
+      margin-top: 20px;
+      font-size: 18px;
+    }
+    .controls {
+      margin: 10px;
     }
   </style>
 </head>
 <body>
   <h1>AI Detekce Postavy & Rotopedu</h1>
-
-  <div id="controls">
-    <label for="keySelect">Klávesa pro šlápnutí: </label>
-    <select id="keySelect">
-      <option value="w">W</option>
-      <option value="a">A</option>
-      <option value="d">D</option>
-      <option value="m">M</option>
-    </select>
-
-    <label for="colorPicker">Barva detekce: </label>
-    <input type="color" id="colorPicker" value="#00ff00" />
-
-    <button onclick="resetStats()">♻️ Resetovat statistiky</button>
-  </div>
-
   <canvas id="canvas" width="640" height="480"></canvas>
+
+  <div class="controls">
+    <label>Barva detekce: <input type="color" id="colorPicker" value="#00ff00" /></label><br />
+    <label>Klávesa pro pohyb vpřed: <input type="text" id="forwardKey" value="w" maxlength="1" /></label><br />
+    <label>Klávesa pro levou ruku (zatáčení vlevo): <input type="text" id="leftKey" value="a" maxlength="1" /></label><br />
+    <label>Klávesa pro pravou ruku (zatáčení vpravo): <input type="text" id="rightKey" value="d" maxlength="1" /></label><br />
+    <button onclick="resetStats()">Resetovat statistiky</button>
+  </div>
 
   <div id="stats">
     <p>Otáčky: <span id="rotations">0</span></p>
@@ -57,85 +53,106 @@
     const rotSpan = document.getElementById('rotations');
     const speedSpan = document.getElementById('speed');
     const timeSpan = document.getElementById('time');
-    const keySelect = document.getElementById('keySelect');
     const colorPicker = document.getElementById('colorPicker');
+    const forwardKey = document.getElementById('forwardKey');
+    const leftKey = document.getElementById('leftKey');
+    const rightKey = document.getElementById('rightKey');
 
     let rotations = 0;
     let startTime = Date.now();
     let lastDetection = 0;
-    let video;
 
     function resetStats() {
       rotations = 0;
       startTime = Date.now();
     }
 
-    async function simulateKeyPress(key) {
-      const event = new KeyboardEvent('keydown', { key });
-      document.dispatchEvent(event);
+    function simulateKeyPress(key) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key }));
     }
 
     async function start() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video = document.createElement('video');
+      const video = document.createElement('video');
       video.srcObject = stream;
       await video.play();
+
+      async function draw() {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        let detection = false;
+        const selectedColor = hexToRgb(colorPicker.value);
+
+        let leftDetected = false;
+        let rightDetected = false;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+
+          const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+          const distance = colorDistance([r, g, b], selectedColor);
+
+          if (distance < 100) {
+            data[i] = selectedColor[0];
+            data[i + 1] = selectedColor[1];
+            data[i + 2] = selectedColor[2];
+            data[i + 3] = 200;
+
+            const x = (i / 4) % canvas.width;
+            if (x < canvas.width / 3) leftDetected = true;
+            else if (x > 2 * canvas.width / 3) rightDetected = true;
+
+            if (!detection && brightness > 100) {
+              detection = true;
+            }
+          } else {
+            data[i + 3] = 50;
+          }
+        }
+
+        if (detection && Date.now() - lastDetection > 500) {
+          rotations++;
+          lastDetection = Date.now();
+          simulateKeyPress(forwardKey.value);
+        }
+
+        if (leftDetected) simulateKeyPress(leftKey.value);
+        if (rightDetected) simulateKeyPress(rightKey.value);
+
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const rpm = elapsed > 0 ? Math.round((rotations / elapsed) * 60) : 0;
+
+        rotSpan.textContent = rotations;
+        speedSpan.textContent = rpm;
+        timeSpan.textContent = elapsed;
+
+        ctx.putImageData(imageData, 0, 0);
+        requestAnimationFrame(draw);
+      }
 
       draw();
     }
 
-    async function draw() {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      const selectedColor = hexToRgb(colorPicker.value);
-
-      let detection = false;
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
-
-        if (brightness > 60 && brightness < 230) {
-          data[i] = selectedColor.r;
-          data[i + 1] = selectedColor.g;
-          data[i + 2] = selectedColor.b;
-          data[i + 3] = 255;
-
-          if (!detection && brightness > 130) {
-            detection = true;
-          }
-        }
-      }
-
-      if (detection && Date.now() - lastDetection > 500) {
-        rotations++;
-        simulateKeyPress(keySelect.value);
-        lastDetection = Date.now();
-      }
-
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const rpm = elapsed > 0 ? Math.round((rotations / elapsed) * 60) : 0;
-
-      rotSpan.textContent = rotations;
-      speedSpan.textContent = rpm;
-      timeSpan.textContent = elapsed;
-
-      ctx.putImageData(imageData, 0, 0);
-      requestAnimationFrame(draw);
+    function hexToRgb(hex) {
+      hex = hex.replace('#', '');
+      const bigint = parseInt(hex, 16);
+      return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
     }
 
-    function hexToRgb(hex) {
-      const bigint = parseInt(hex.replace('#', ''), 16);
-      return {
-        r: (bigint >> 16) & 255,
-        g: (bigint >> 8) & 255,
-        b: bigint & 255,
-      };
+    function colorDistance(c1, c2) {
+      return Math.sqrt(
+        (c1[0] - c2[0]) ** 2 +
+        (c1[1] - c2[1]) ** 2 +
+        (c1[2] - c2[2]) ** 2
+      );
     }
 
     start();
   </script>
 </body>
 </html>
+
