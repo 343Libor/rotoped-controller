@@ -114,7 +114,7 @@
       return { r, g, b };
     }
 
-    function colorMatch(r, g, b, target, threshold = 50) {
+    function colorMatch(r, g, b, target, threshold = 30) {
       return (
         Math.abs(r - target.r) < threshold &&
         Math.abs(g - target.g) < threshold &&
@@ -139,21 +139,24 @@
       let pedalX = 0, pedalY = 0, pedalCount = 0;
       let handX = 0, handCount = 0;
 
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        const index = i / 4;
-        const x = index % canvas.width;
-        const y = Math.floor(index / canvas.width);
+      // Ignoruj oblasti mimo předpokládanou pozici člověka a rotopedu (střed obrazu)
+      const margin = 100;
 
-        if (colorMatch(r, g, b, pedalRGB)) {
-          pedalX += x;
-          pedalY += y;
-          pedalCount++;
-        } else if (colorMatch(r, g, b, handRGB)) {
-          handX += x;
-          handCount++;
+      for (let y = margin; y < canvas.height - margin; y++) {
+        for (let x = margin; x < canvas.width - margin; x++) {
+          const i = (y * canvas.width + x) * 4;
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+
+          if (colorMatch(r, g, b, pedalRGB)) {
+            pedalX += x;
+            pedalY += y;
+            pedalCount++;
+          } else if (colorMatch(r, g, b, handRGB)) {
+            handX += x;
+            handCount++;
+          }
         }
       }
 
@@ -163,7 +166,7 @@
 
         ctx.beginPath();
         ctx.arc(avgX, avgY, 20, 0, 2 * Math.PI);
-        ctx.strokeStyle = "red";
+        ctx.strokeStyle = pedalColorInput.value;
         ctx.lineWidth = 5;
         ctx.stroke();
 
@@ -180,7 +183,7 @@
         const avgX = handX / handCount;
         ctx.beginPath();
         ctx.arc(avgX, canvas.height / 2, 20, 0, 2 * Math.PI);
-        ctx.strokeStyle = "green";
+        ctx.strokeStyle = handColorInput.value;
         ctx.lineWidth = 5;
         ctx.stroke();
 
